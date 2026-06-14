@@ -43,3 +43,12 @@
   stages: [pre-commit]
   always_run: true
   pass_filenames: false
+
+- id: prevent-ai-pr-body
+  name: prevent AI-authored PR bodies
+  description: block gh pr create commands whose body contains AI authorship markers (Claude Code PreToolUse hook)
+  entry: prevent-ai-pr-body.sh
+  language: script
+  stages: []
+  pass_filenames: false
+  always_run: true
