@@ -1,0 +1,17 @@
+# lefthook configuration -- fast, cross-language Git hooks manager.
+#
+# Install:  go install github.com/evilmartians/lefthook@latest
+#           or via npm/cargo/homebrew: https://github.com/evilmartians/lefthook
+# Setup:    lefthook install
+# Run all:  lefthook run pre-commit --all-files
+#
+# Hook below mirrors the actionlint check in .pre-commit-config.yaml.
+# YAML validation, whitespace, EOF, and merge-conflict checks are handled
+# by pre-commit / prek; lefthook runs the GH Actions-specific linter.
+
+pre-commit:
+  parallel: true
+  commands:
+    actionlint:
+      glob: ".github/workflows/*.{yml,yaml}"
+      run: actionlint {staged_files}
