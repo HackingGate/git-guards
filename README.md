@@ -14,9 +14,13 @@ canonical home for these guards, referenced remotely instead of copying
 | `prevent-public-push` | pre-push | block pushes outside the workspace owner allow-list |
 | `no-local-merge` | pre-merge-commit | disable local `git merge` (use `gh pr merge`) |
 | `no-merge-commit` | pre-commit | block in-progress merge / squash-merge commits |
+| `prevent-ai-pr-body` | Claude PreToolUse | block `gh pr create` with AI authorship in body |
 
 `prevent-public-push` derives the allowed owner from the consuming repo's
 `origin` URL and a `<OWNER>_ALLOW_UNSAFE_PUSH` env var — no per-repo edits needed.
+
+`prevent-ai-pr-body` is a **Claude Code PreToolUse hook**, not a pre-commit hook.
+It is referenced from `.claude/settings.local.json`:
 
 ## Usage
 
@@ -42,6 +46,28 @@ repos:
 
 Then `prek install` (or `pre-commit install`). Repo-specific hooks (cargo, zig,
 ruff, shellcheck, branding checks, CI) stay in the consuming repo's own config.
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "scripts/prevent-ai-pr-body.sh",
+            "if": "Bash(gh pr create *)"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+Copy `prevent-ai-pr-body.sh` into the workspace `scripts/` directory (or add
+this repo as a submodule and adjust the path).
 
 ## Updating
 
