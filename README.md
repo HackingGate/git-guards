@@ -12,7 +12,7 @@ canonical home for these guards, referenced remotely instead of copying
 | `prevent-ai-author` | commit-msg | reject commits carrying AI-authorship trailers |
 | `prevent-unusual-unicode` | commit-msg | reject control/zero-width/emoji/unusual unicode in messages |
 | `prevent-public-push` | pre-push | block pushes outside the workspace owner allow-list |
-| `no-local-merge` | pre-merge-commit | disable local `git merge` (use `gh pr merge`) |
+| `no-local-merge` | pre-merge-commit | disable local `git merge` (use `gh pr merge` when using GitHub) |
 | `no-merge-commit` | pre-commit | block in-progress merge / squash-merge commits |
 
 `prevent-public-push` derives the allowed owner from the consuming repo's
@@ -81,7 +81,3 @@ Add to `~/.claude/settings.json` (HOME root) or `.claude/settings.local.json` (p
   trailer and the `Generated with Claude Code` line from commit messages.
 - `pr` — suppresses the `Generated with Claude Code` footer from PR bodies
   (also caught by the `scripts/prevent-ai-pr-body.sh` PreToolUse hook).
-
-The `no-local-merge` hook blocks local `git merge`. Merge PRs via `gh pr merge`
-instead.
-
