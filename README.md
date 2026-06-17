@@ -12,7 +12,7 @@ canonical home for these guards, referenced remotely instead of copying
 | `prevent-ai-author` | commit-msg | reject commits carrying AI-authorship trailers |
 | `prevent-unusual-unicode` | commit-msg | reject control/zero-width/emoji/unusual unicode in messages |
 | `prevent-public-push` | pre-push | block pushes outside the workspace owner allow-list (any platform) |
-| `no-local-merge` | pre-merge-commit | disable local `git merge` (use `gh pr merge` when using GitHub) |
+| `no-local-merge` | pre-merge-commit | disable local `git merge` (merge via your forge's PR/MR workflow) |
 | `no-merge-commit` | pre-commit | block in-progress merge / squash-merge commits |
 
 `prevent-public-push` parses the remote URL to extract the owner, checks it
