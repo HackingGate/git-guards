@@ -52,3 +52,36 @@ git tag -a vX.Y.Z -m "vX.Y.Z" && git push origin vX.Y.Z
 ```
 
 Consumers move to the new `rev:` when ready (or via `prek autoupdate`).
+
+## Claude Code Agent Setup
+
+The `prevent-ai-author` commit-msg hook rejects commits and PRs containing AI
+authorship markers: `Co-Authored-By` trailers with `noreply@` addresses and
+`Generated with [Claude/Copilot/…]` lines.
+
+Claude Code appends these markers by default. Configure your agent so it doesn't
+trip the hooks — choose one of the levels below.
+
+### Setup
+
+Add to `~/.claude/settings.json` (HOME root) or `.claude/settings.local.json` (project root):
+
+```json
+{
+  "attribution": {
+    "commit": "",
+    "pr": ""
+  }
+}
+```
+
+### What the keys do
+
+- `commit` — suppresses the `Co-Authored-By: Claude <noreply@anthropic.com>`
+  trailer and the `Generated with Claude Code` line from commit messages.
+- `pr` — suppresses the `Generated with Claude Code` footer from PR bodies
+  (also caught by the `scripts/prevent-ai-pr-body.sh` PreToolUse hook).
+
+The `no-local-merge` hook blocks local `git merge`. Merge PRs via `gh pr merge`
+instead.
+
