@@ -16,9 +16,13 @@ canonical home for these guards, referenced remotely instead of copying
 | `no-merge-commit` | pre-commit | block in-progress merge / squash-merge commits |
 
 `prevent-public-push` parses the remote URL to extract the owner, checks it
-against `<OWNER>_ALLOWED_PUSH_OWNERS` (defaults to the `origin` owner), and
-blocks the push if it doesn't match. Works with any platform — GitHub, GitLab,
-Bitbucket, self-hosted, etc. Set `<OWNER>_ALLOW_UNSAFE_PUSH=1` to bypass.
+against `<OWNER>_ALLOWED_PUSH_OWNERS`, and blocks the push if it doesn't match.
+Works with any platform — GitHub, GitLab, Bitbucket, self-hosted, etc.
+
+The default allowed-owners list is `WORKSPACE_ALLOWED_PUSH_OWNERS` (falls back
+to the `origin` remote's owner). Set `<OWNER>_ALLOWED_PUSH_OWNERS` to override
+for a specific workspace. Set `<OWNER>_ALLOW_UNSAFE_PUSH=1` (or
+`WORKSPACE_ALLOW_UNSAFE_PUSH=1`) to bypass the guard entirely.
 
 ## Usage
 

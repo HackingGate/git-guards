@@ -33,12 +33,12 @@ repo_from_url() {
     url="${url%%#*}"
     url="${url%%\?*}"
 
-    if [[ "$url" =~ ^git@([^:]+):(.+)$ ]]; then
+    if [[ "$url" =~ ^[^@/:]+@([^:]+):(.+)$ ]]; then
         path="${BASH_REMATCH[2]}"
     elif [[ "$url" =~ ^ssh://([^/@]+@)?([^/:]+)(:[0-9]+)?/(.+)$ ]]; then
         path="${BASH_REMATCH[4]}"
-    elif [[ "$url" =~ ^https?://([^/@]+@)?([^/:]+)/(.+)$ ]]; then
-        path="${BASH_REMATCH[3]}"
+    elif [[ "$url" =~ ^https?://([^/@]+@)?([^/:]+)(:[0-9]+)?/(.+)$ ]]; then
+        path="${BASH_REMATCH[4]}"
     else
         return 1
     fi
