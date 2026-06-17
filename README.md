@@ -37,7 +37,7 @@ default_install_hook_types:
 
 repos:
   - repo: https://github.com/HackingGate/git-guards
-    rev: v1.0.0
+    rev: v1.1.0
     hooks:
       - id: prevent-ai-author
       - id: prevent-unusual-unicode
