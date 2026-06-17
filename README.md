@@ -79,5 +79,4 @@ Add to `~/.claude/settings.json` (HOME root) or `.claude/settings.local.json` (p
 
 - `commit` — suppresses the `Co-Authored-By: Claude <noreply@anthropic.com>`
   trailer and the `Generated with Claude Code` line from commit messages.
-- `pr` — suppresses the `Generated with Claude Code` footer from PR bodies
-  (also caught by the `scripts/prevent-ai-pr-body.sh` PreToolUse hook).
+- `pr` — suppresses the `Generated with Claude Code` footer from PR bodies.
