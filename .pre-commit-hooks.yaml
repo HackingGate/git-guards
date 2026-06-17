@@ -26,18 +26,18 @@
   always_run: true
 
 - id: no-local-merge
-  name: no local git merge (use gh)
+  name: no local git merge
   language: fail
   entry: >-
-    Local merges are disabled. Use `gh pr create`
-    then `gh pr merge` instead. Override once with `git merge --no-verify`
-    if you truly mean it.
+    Local merges are disabled. Merge via your forge's PR/MR workflow
+    (e.g. `gh pr merge`, `glab mr merge`). Override once with
+    `git merge --no-verify` if you truly mean it.
   stages: [pre-merge-commit]
   always_run: true
   pass_filenames: false
 
 - id: no-merge-commit
-  name: no local merge commit (use gh)
+  name: no local merge commit
   entry: no-merge-commit.sh
   language: script
   stages: [pre-commit]

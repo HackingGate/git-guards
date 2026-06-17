@@ -11,12 +11,18 @@ canonical home for these guards, referenced remotely instead of copying
 |---|---|---|
 | `prevent-ai-author` | commit-msg | reject commits carrying AI-authorship trailers |
 | `prevent-unusual-unicode` | commit-msg | reject control/zero-width/emoji/unusual unicode in messages |
-| `prevent-public-push` | pre-push | block pushes outside the workspace owner allow-list |
-| `no-local-merge` | pre-merge-commit | disable local `git merge` (use `gh pr merge` when using GitHub) |
+| `prevent-public-push` | pre-push | block pushes outside the workspace owner allow-list (any platform) |
+| `no-local-merge` | pre-merge-commit | disable local `git merge` (merge via your forge's PR/MR workflow) |
 | `no-merge-commit` | pre-commit | block in-progress merge / squash-merge commits |
 
-`prevent-public-push` derives the allowed owner from the consuming repo's
-`origin` URL and a `<OWNER>_ALLOW_UNSAFE_PUSH` env var — no per-repo edits needed.
+`prevent-public-push` parses the remote URL to extract the owner, checks it
+against `<OWNER>_ALLOWED_PUSH_OWNERS`, and blocks the push if it doesn't match.
+Works with any platform — GitHub, GitLab, Bitbucket, self-hosted, etc.
+
+The default allowed-owners list is `WORKSPACE_ALLOWED_PUSH_OWNERS` (falls back
+to the `origin` remote's owner). Set `<OWNER>_ALLOWED_PUSH_OWNERS` to override
+for a specific workspace. Set `<OWNER>_ALLOW_UNSAFE_PUSH=1` (or
+`WORKSPACE_ALLOW_UNSAFE_PUSH=1`) to bypass the guard entirely.
 
 ## Usage
 
