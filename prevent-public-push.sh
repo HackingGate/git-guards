@@ -26,21 +26,19 @@ redact_url() {
     printf '%s\n' "$url"
 }
 
-github_repo_from_url() {
+repo_from_url() {
     local url="$1"
     local path owner repo extra
 
     url="${url%%#*}"
     url="${url%%\?*}"
 
-    if [[ "$url" =~ ^https?://([^/@]+@)?github\.com[:/](.+)$ ]]; then
+    if [[ "$url" =~ ^git@([^:]+):(.+)$ ]]; then
         path="${BASH_REMATCH[2]}"
-    elif [[ "$url" =~ ^ssh://([^/@]+@)?github\.com(:[0-9]+)?/(.+)$ ]]; then
+    elif [[ "$url" =~ ^ssh://([^/@]+@)?([^/:]+)(:[0-9]+)?/(.+)$ ]]; then
+        path="${BASH_REMATCH[4]}"
+    elif [[ "$url" =~ ^https?://([^/@]+@)?([^/:]+)/(.+)$ ]]; then
         path="${BASH_REMATCH[3]}"
-    elif [[ "$url" =~ ^git@github\.com:(.+)$ ]]; then
-        path="${BASH_REMATCH[1]}"
-    elif [[ "$url" =~ ^github\.com[:/](.+)$ ]]; then
-        path="${BASH_REMATCH[1]}"
     else
         return 1
     fi
@@ -61,7 +59,7 @@ workspace_owner_from_origin() {
     local origin_url origin_repo
 
     origin_url="$(git -C "$workspace_root" remote get-url origin 2>/dev/null || true)"
-    if [ -n "$origin_url" ] && origin_repo="$(github_repo_from_url "$origin_url")"; then
+    if [ -n "$origin_url" ] && origin_repo="$(repo_from_url "$origin_url")"; then
         printf '%s\n' "${origin_repo%%/*}"
         return
     fi
@@ -79,21 +77,12 @@ workspace_owner="$(workspace_owner_from_origin)"
 workspace_env_prefix="$(env_prefix_for_owner "$workspace_owner")"
 
 allowed_owners_var="${workspace_env_prefix}_ALLOWED_PUSH_OWNERS"
-allowed_repos_var="${workspace_env_prefix}_ALLOWED_PUSH_REPOS"
-allow_external_var="${workspace_env_prefix}_ALLOW_EXTERNAL_PUSH"
 allow_unsafe_var="${workspace_env_prefix}_ALLOW_UNSAFE_PUSH"
 
 allowed_owners="${WORKSPACE_ALLOWED_PUSH_OWNERS:-$workspace_owner}"
-allowed_repos="${WORKSPACE_ALLOWED_PUSH_REPOS:-}"
-allow_external="${WORKSPACE_ALLOW_EXTERNAL_PUSH:-}"
 allow_unsafe="${WORKSPACE_ALLOW_UNSAFE_PUSH:-}"
 
-external_hint="$allow_external_var"
 unsafe_hint="$allow_unsafe_var"
-
-if [ -n "${WORKSPACE_ALLOW_EXTERNAL_PUSH+x}" ]; then
-    external_hint=WORKSPACE_ALLOW_EXTERNAL_PUSH
-fi
 
 if [ -n "${WORKSPACE_ALLOW_UNSAFE_PUSH+x}" ]; then
     unsafe_hint=WORKSPACE_ALLOW_UNSAFE_PUSH
@@ -103,39 +92,19 @@ if [ -n "${!allowed_owners_var+x}" ]; then
     allowed_owners="${!allowed_owners_var}"
 fi
 
-if [ -n "${!allowed_repos_var+x}" ]; then
-    allowed_repos="${!allowed_repos_var}"
-fi
-
-if [ -n "${!allow_external_var+x}" ]; then
-    allow_external="${!allow_external_var}"
-    external_hint="$allow_external_var"
-fi
-
 if [ -n "${!allow_unsafe_var+x}" ]; then
     allow_unsafe="${!allow_unsafe_var}"
     unsafe_hint="$allow_unsafe_var"
 fi
 
-is_allowed_repo() {
-    local github_repo="$1"
-    local owner="${github_repo%%/*}"
+is_allowed_owner() {
+    local owner="${1%%/*}"
     local owner_lc="${owner,,}"
-    local repo_lc="${github_repo,,}"
     local item
-
-    for item in ${allowed_repos//,/ }; do
-        [ -n "$item" ] || continue
-        if [ "${item,,}" = "$repo_lc" ]; then
-            return 0
-        fi
-    done
 
     for item in ${allowed_owners//,/ }; do
         [ -n "$item" ] || continue
-        if [ "${item,,}" = "$owner_lc" ]; then
-            return 0
-        fi
+        [ "${item,,}" = "$owner_lc" ] && return 0
     done
 
     return 1
@@ -154,25 +123,20 @@ if [ -z "$remote_url" ]; then
     exit 1
 fi
 
-if github_repo="$(github_repo_from_url "$remote_url")"; then
-    if is_allowed_repo "$github_repo"; then
+if repo="$(repo_from_url "$remote_url")"; then
+    if is_allowed_owner "$repo"; then
         exit 0
     fi
 
     printf 'error: blocked push to %s\n' "$(redact_url "$remote_url")" >&2
-    printf 'Remote "%s" resolves to GitHub repo "%s", which is outside allowed owner(s): %s\n' \
-        "$remote_name" "$github_repo" "$allowed_owners" >&2
+    printf 'Remote "%s" resolves to repo "%s" (outside allowed owner(s): %s).\n' \
+        "$remote_name" "$repo" "$allowed_owners" >&2
     printf 'This guard prevents accidental pushes to public upstreams or personal forks.\n' >&2
     printf 'Use %s=1 for a deliberate one-off bypass.\n' "$unsafe_hint" >&2
     exit 1
 fi
 
-if [ "$allow_external" = "1" ]; then
-    exit 0
-fi
-
-printf 'error: blocked push to non-allowlisted remote %s\n' "$(redact_url "$remote_url")" >&2
-printf 'Only github.com/%s/* pushes are allowed by default.\n' "$allowed_owners" >&2
-printf 'Set %s=1 for trusted non-GitHub remotes, or %s=1 for a one-off bypass.\n' \
-    "$external_hint" "$unsafe_hint" >&2
+printf 'error: blocked push to unrecognised remote %s\n' "$(redact_url "$remote_url")" >&2
+printf 'Could not parse owner/repo from the remote URL.\n' >&2
+printf 'Set %s=1 for a deliberate one-off bypass.\n' "$unsafe_hint" >&2
 exit 1
