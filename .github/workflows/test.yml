@@ -22,7 +22,7 @@ jobs:
       matrix:
         tool: [pre-commit, prek, lefthook]
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       # ── pre-commit (Python) ──────────────────────────────────────
       - if: matrix.tool == 'pre-commit'
