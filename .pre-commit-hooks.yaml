@@ -7,6 +7,15 @@
   pass_filenames: false
   always_run: true
 
+- id: prevent-author-mismatch
+  name: prevent author/committer identity mismatch
+  description: block commits whose author/committer doesn't match your global ~/.gitconfig identity
+  entry: prevent-author-mismatch.sh
+  language: script
+  stages: [pre-commit]
+  pass_filenames: false
+  always_run: true
+
 - id: prevent-unusual-unicode
   name: prevent unusual unicode in commit messages
   description: reject control/zero-width/emoji and other unusual unicode in commit messages

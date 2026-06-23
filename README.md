@@ -10,6 +10,7 @@ canonical home for these guards, referenced remotely instead of copying
 | id | stage | purpose |
 |---|---|---|
 | `prevent-ai-author` | commit-msg | reject commits carrying AI-authorship trailers |
+| `prevent-author-mismatch` | pre-commit | block commits whose author/committer doesn't match your global `~/.gitconfig` identity |
 | `prevent-unusual-unicode` | commit-msg | reject control/zero-width/emoji/unusual unicode in messages |
 | `prevent-public-push` | pre-push | block pushes outside the workspace owner allow-list (any platform) |
 | `no-local-merge` | pre-merge-commit | disable local `git merge` (merge via your forge's PR/MR workflow) |
@@ -23,6 +24,15 @@ The default allowed-owners list is `WORKSPACE_ALLOWED_PUSH_OWNERS` (falls back
 to the `origin` remote's owner). Set `<OWNER>_ALLOWED_PUSH_OWNERS` to override
 for a specific workspace. Set `<OWNER>_ALLOW_UNSAFE_PUSH=1` (or
 `WORKSPACE_ALLOW_UNSAFE_PUSH=1`) to bypass the guard entirely.
+
+`prevent-author-mismatch` requires the author **and** committer of each commit
+to match your global identity — the `user.name` / `user.email` in `~/.gitconfig`
+(`git config --global`). The identity it checks is resolved via `git var`, so it
+catches a stray repo-local `user.email`, `git commit --author=...`, and
+`GIT_AUTHOR_*`/`GIT_COMMITTER_*` environment overrides alike. This stops an agent
+from `git init`-ing a fresh repo and committing under the wrong author. There are
+no env vars or extra config to set: the global identity is the single source of
+truth. Bypass once with `git commit --no-verify`.
 
 ## Usage
 
@@ -40,6 +50,7 @@ repos:
     rev: v1.1.0
     hooks:
       - id: prevent-ai-author
+      - id: prevent-author-mismatch
       - id: prevent-unusual-unicode
       - id: prevent-public-push
       - id: no-local-merge
