@@ -330,30 +330,61 @@ print_scopes() {
 #: carried; the colon is what keeps it from ever being read as a commit sha.
 TREE_ORIGIN=':tree'
 
-#: git's own formatting, asked for identically of the index and of a tree, so
-#: that the two arrive in one shape and no caller has to know which it got. The
-#: origin is a literal in the format string rather than something appended
-#: afterwards, so the shape is git's for every field a caller splits on.
-ENTRY_FORMAT="%(objectmode) %(objectname) $TREE_ORIGIN%x09%(path)"
+#: One record shape, `MODE OID ORIGIN<TAB>PATH`, built from git's CLASSIC `-z`
+#: listings rather than from `--format`.
+#:
+#: `--format` is the obvious way to ask for exactly these fields, and it is the
+#: wrong one, because `%(path)` renders through `core.quotePath` while a classic
+#: `-z` listing is documented to emit the path verbatim. That difference is not
+#: cosmetic for these guards: a path is BYTES, and the whole question one of
+#: them asks is which characters a name holds. A name replaced by a spelling of
+#: itself -- backslashes and octal digits -- cannot hold any of them.
+#:
+#: Measured on git 2.47.3, one tree, one moment, names holding U+00E9 and U+200B:
+#:
+#:   git ls-files -z --format=...    ->  src/hel<U+200B>lo.py
+#:   git ls-tree -r -z --format=...  ->  "src/hel\342\200\213lo.py"
+#:
+#: so the index and the commit being pushed answered differently about the same
+#: tree. A filename carrying U+200B was refused at the index and reported clean
+#: at pre-push -- counted as scanned, exit 0 -- and the branch reached the
+#: remote.
+#:
+#: The first fix for that was `-c core.quotePath=false` on both commands, which
+#: reconciles them on 2.47.3 and DOES NOT on 2.54.0, where CI caught it. That is
+#: the lesson worth keeping: a per-version workaround for a formatting question
+#: is the wrong shape when a format that never quotes already exists. The
+#: classic listings carry every field needed here, in different positions, and
+#: normalising those positions is a fixed cost paid once:
+#:
+#:   git ls-files -s -z       ->  MODE OID STAGE<TAB>PATH
+#:   git ls-tree -r -z <rev>  ->  MODE TYPE OID<TAB>PATH
+#:
+#: It also drops the git 2.38 floor that `--format` imposed.
+#:
+#: The split is on the FIRST tab only, because a path may hold tabs, spaces and
+#: newlines, and the metadata git puts before that tab never does.
+normalise_entries() {
+    local field="$1" rec meta path mode oid
+    while IFS= read -r -d '' rec; do
+        meta="${rec%%$'\t'*}"
+        path="${rec#*$'\t'}"
+        mode="${meta%% *}"
+        meta="${meta#* }"
+        if [ "$field" = 'stage' ]; then
+            oid="${meta%% *}"
+        else
+            oid="${meta#* }"
+        fi
+        printf '%s %s %s\t%s\0' "$mode" "$oid" "$TREE_ORIGIN" "$path"
+    done
+}
 
-#: A path is BYTES, and -z is not enough to get them out of --format.
-#:
-#: `-z` turns off path quoting for git's plain listings. It does NOT turn it off
-#: for `%(path)` under `--format`, which is rendered through `core.quotePath`
-#: whatever the terminator is -- and the two commands here do not even agree
-#: with each other about it. Measured on git 2.47.3, one tree, one moment:
-#:
-#:   git ls-files -z --format=...   ->  src/hel<U+200B>lo.py
-#:   git ls-tree -r -z --format=... ->  "src/hel\342\200\213lo.py"
-#:
-#: So the index and the commit being pushed answered differently about the same
-#: tree, and every non-ASCII codepoint in a name reached the callers as ASCII
-#: backslashes and digits. For the guard whose whole question is which
-#: characters a name holds, that is the name replaced by a spelling of itself
-#: that cannot hold any of them: a filename carrying U+200B was refused at the
-#: index and reported clean at pre-push -- counted as scanned, exit 0 -- and the
-#: branch reached the remote. Turning quoting off explicitly, on both, is what
-#: makes "one shape" above true rather than nearly true.
+#: Belt and braces for the one command still asked for a formatted listing.
+#: `diff-tree -r -z` emits raw output whose paths are already verbatim, so this
+#: changes nothing today -- it is here so that a future edit reaching for
+#: `--format` on that command does not silently reintroduce the quoting defect
+#: the listings above were rewritten to eliminate.
 QUOTE_OFF=(-c core.quotePath=false)
 
 # WHICH commits this operation publishes, as arguments for `git rev-list` and
@@ -533,8 +564,9 @@ print_entries() {
         if [ -n "$unmerged" ]; then
             fail 'the index holds unmerged paths, so it is not a tree this commit could have'
         fi
-        git "${QUOTE_OFF[@]}" ls-files -z --format="$ENTRY_FORMAT" ||
-            fail 'git ls-files could not list the index (--format needs git 2.38 or newer)'
+        if ! git ls-files -s -z 2>/dev/null | normalise_entries stage; then
+            fail 'git ls-files could not list the index'
+        fi
         return
     fi
 
@@ -542,8 +574,9 @@ print_entries() {
         # No push, so no range: a bare clone's HEAD, or a scan pointed at a rev
         # by hand. The tree is the whole answer and it is streamed straight out,
         # which is also what keeps the manual stage costing exactly what it did.
-        git "${QUOTE_OFF[@]}" ls-tree -r -z --format="$ENTRY_FORMAT" "$scope" ||
-            fail "git ls-tree could not list $scope (--format needs git 2.38 or newer)"
+        if ! git ls-tree -r -z "$scope" 2>/dev/null | normalise_entries type; then
+            fail "git ls-tree could not list $scope"
+        fi
         return
     fi
 
@@ -553,8 +586,10 @@ print_entries() {
     # genuinely additional.
     work="$(mktemp -d)" || fail 'could not make a working directory'
     trap 'rm -rf "$work"' EXIT
-    git "${QUOTE_OFF[@]}" ls-tree -r -z --format="$ENTRY_FORMAT" "$scope" >"$work/tree" ||
-        fail "git ls-tree could not list $scope (--format needs git 2.38 or newer)"
+    if ! git ls-tree -r -z "$scope" 2>/dev/null | normalise_entries type \
+        >"$work/tree"; then
+        fail "git ls-tree could not list $scope"
+    fi
     while IFS= read -r -d '' rec; do
         printf '%s\0' "$rec"
         mode="${rec%% *}"
