@@ -58,6 +58,49 @@ check() {
     fi
 }
 
+# ── the fixture, in bytes, because the fixture is what broke ────────────
+#
+# U+200B is planted four times below, and every case asserting a REFUSAL is
+# worth exactly as much as those three bytes reaching the file. A \u escape does
+# not put them there. bash renders one through the CURRENT LOCALE's charset, and
+# when the charset cannot hold the codepoint it emits the escape itself as
+# literal ASCII. Spelling the zero-width space the obvious way and asking for the
+# bytes back:
+#
+#   under en_US.UTF-8   74 69 64 79 e2 80 8b 75 70      tidy<U+200B>up
+#   under LC_ALL=C      74 69 64 79 5c 75 32 30 30 42 75 70
+#
+# The second is `tidy`, a backslash, `u200B`, `up`: twelve ASCII characters, no
+# zero-width space among them, and a capital B the source never wrote. `$'...'`,
+# `printf '%b'` and a `$(...)` capture of any of them degrade identically; only
+# the enclosing locale decides.
+#
+# So on a runner with no UTF-8 locale installed -- which is what CI gives you --
+# every guard correctly passed a clean message, every "is refused" case failed,
+# and nothing in the output suggested the fixture. Seven failures that read as
+# seven broken guards.
+#
+# Octal escapes are BYTES. printf writes them unconverted in every locale, which
+# is the property a fixture needs and \u does not have. Written once here and
+# interpolated, so there is one spelling to get right instead of four.
+ZWSP="$(printf '\342\200\213')"
+
+# And asserted, because the failure mode is a fixture that quietly stops being
+# the thing under test. A degraded ZWSP does not break these cases, it INVERTS
+# them: each one hands a guard a clean message and records the approval.
+#
+# `od` and not `${#ZWSP}`: the length of a string is itself locale-dependent --
+# ${#ZWSP} is 1 under a UTF-8 locale and 3 under C -- so a check written that way
+# would be measuring the very thing it is supposed to be independent of.
+zwsp_bytes="$(printf '%s' "$ZWSP" | od -An -tx1 | tr -d ' \n')"
+if [ "$zwsp_bytes" != "e2808b" ]; then
+    printf 'FAIL the U+200B fixture is not U+200B\n'
+    printf '     planted bytes %s, wanted e2808b\n' "${zwsp_bytes:-nothing}"
+    printf '     every "is refused" case below would be handing a guard a clean\n'
+    printf '     message and recording that it passed\n'
+    exit 1
+fi
+
 # The runner is a dependency of the test, not of the repository, so a machine
 # without one is reported rather than passed. A skipped case that prints nothing
 # is a green run that checked nothing.
@@ -140,16 +183,16 @@ check "...and the commit is actually in the history" 1 "$((after - before))" \
 # to every log, and the commit-msg guard is the only thing between it and
 # published history. If this passes, the fix above has switched the message mode
 # off instead of scoping it.
-printf 'chore: tidy\u200b up\n' >"$work/hidden.txt"
+printf 'chore: tidy%s up\n' "$ZWSP" >"$work/hidden.txt"
 before="$(git -C "$work" rev-list --count HEAD 2>/dev/null || printf '0')"
 (cd "$work" && git commit -q --allow-empty -F hidden.txt >"$runner_log" 2>&1)
 status="$?"
 after="$(git -C "$work" rev-list --count HEAD 2>/dev/null || printf '0')"
 
-check "a hidden codepoint in the subject is refused" 1 "$status"
+check "a hidden codepoint in the subject is refused" 1 "$status" "$runner_log"
 check "...and no commit was made" 0 "$((after - before))" "$runner_log"
 
-# \u2500\u2500 the runner's own commit-msg entry point \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+# ── the runner's own commit-msg entry point ─────────────────────────
 #
 # `git commit` is not the only way these guards are reached. A person checking
 # whether a guard actually catches something runs the runner directly:
@@ -212,7 +255,7 @@ msg_lane "a clean message handed to the runner passes" 0 \
 
 # One case per commit-msg guard, each carrying what that guard alone refuses.
 msg_lane "a hidden codepoint in the handed-over file is refused" 1 \
-    'chore: tidy\u200b up\n'
+    "chore: tidy${ZWSP} up\n"
 msg_lane "an AI-authorship trailer in the handed-over file is refused" 1 \
     'chore: tidy up\n\nCo-Authored-By: Someone <noreply@example.invalid>\n'
 msg_lane "a private repo name in the handed-over file is refused" 1 \
@@ -253,7 +296,7 @@ merge_lane_status() {
 }
 
 before="$(git -C "$work" rev-list --count HEAD 2>/dev/null || printf '0')"
-status="$(merge_lane_status hidden-branch 'key:\u200bvalue\n' 'chore: merge a branch that met no hook')"
+status="$(merge_lane_status hidden-branch "key:${ZWSP}value\n" 'chore: merge a branch that met no hook')"
 after="$(git -C "$work" rev-list --count HEAD 2>/dev/null || printf '0')"
 check "a merge carrying a hidden codepoint is refused" 1 "$status" "$runner_log"
 check "...and no merge commit was made" 0 "$((after - before))" "$runner_log"
@@ -319,10 +362,11 @@ git -C "$hookless" config user.email "hookless@example.invalid"
 git -C "$hookless" config commit.gpgsign false
 printf 'a line\n' >"$hookless/hookless-note.txt"
 git -C "$hookless" add hookless-note.txt >/dev/null 2>&1
-# The escape, not a literal: a literal zero-width space in this file is one
+# Interpolated, not written out: a literal zero-width space in this file is one
 # formatter away from being stripped, and the lane would then pass while
-# asserting nothing.
-git -C "$hookless" commit -q -m "$(printf 'chore: tidy\u200b up')"
+# asserting nothing. $ZWSP is checked against its bytes at the top of the file,
+# which a literal here never would be.
+git -C "$hookless" commit -q -m "chore: tidy${ZWSP} up"
 
 # The fast-forward. No hook runs for one, and the assertion says so: if a hook
 # had refused here the push assertions below would be measuring the wrong thing.

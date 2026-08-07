@@ -282,10 +282,23 @@ git -C "$project" rm -q --cached vendored
 #
 # The assertion is equality between the two scopes rather than a spelling,
 # because that is the property both callers rely on and neither can check.
+#
+# The zero-width space is built from OCTAL escapes and checked against its bytes
+# before it is used. Naming the codepoint with a backslash-u escape looks like
+# the obvious spelling and is not one: bash resolves that through the current
+# locale's charset, and under LC_ALL=C -- a runner with no UTF-8 locale -- it
+# emits the escape back as six literal ASCII characters instead. The file would
+# then be named in ASCII, this case would still pass, and the only non-ASCII name
+# left in the fixture would be the café one: half the property under test gone,
+# silently, with no failure anywhere to say so.
 nonascii_dir="$work/nonascii"
 new_repo "$nonascii_dir"
 mkdir -p "$nonascii_dir/src"
-printf 'plain\n' > "$nonascii_dir/src/"$'hel\u200blo'".py"
+zwsp="$(printf '\342\200\213')"
+zwsp_bytes="$(printf '%s' "$zwsp" | od -An -tx1 | tr -d ' \n')"
+check "the fixture's zero-width space really is U+200B" e2808b "$zwsp_bytes"
+nonascii_zwsp_name="src/hel${zwsp}lo.py"
+printf 'plain\n' > "$nonascii_dir/$nonascii_zwsp_name"
 printf 'plain\n' > "$nonascii_dir/src/caf"$'é'".md"
 git -C "$nonascii_dir" add -A
 git -C "$nonascii_dir" commit -q -m nonascii
@@ -298,7 +311,7 @@ check "a commit's paths arrive as the bytes git stored, not git's quoted spellin
     "$nonascii_index" "$nonascii_commit"
 
 check "...and those bytes are the name itself, with no escaping in them" \
-    "src/caf"$'é'".md src/"$'hel\u200blo'".py" \
+    "src/caf"$'é'".md $nonascii_zwsp_name" \
     "$nonascii_commit"
 
 # ── what the pushed RANGE introduces ────────────────────────────────────
