@@ -347,6 +347,53 @@ check_text "text: the one-off bypass still applies" 0 \
     'see https://github.com/acme/secret-thing' \
     GIT_GUARDS_ALLOW_PRIVATE_NAMES=1
 
+# ...and it must still apply when the text does not fit in a pipe buffer.
+#
+# In --text mode the caller PIPES the text in, and the bypass used to `exit 0`
+# without reading a byte of it. That kills the writer with SIGPIPE, and under
+# the `set -o pipefail` that any careful caller runs, the pipeline reports 141
+# -- a guard that meant to say yes reporting a status that is not one of the
+# three outcomes this file promises.
+#
+# The case above cannot catch it: a short message fits in the 64 KiB pipe buffer
+# and the writer finishes before the exit, so the race never runs. This one is
+# sized past the buffer deliberately, which turns a heisenbug into an assertion.
+# Measured: the same command passed here and failed on a CI runner, three legs
+# apart, and only the runner's timing made it deterministic.
+check_status() {
+    local name="$1" expected="$2" got="$3"
+    if [ "$got" -eq "$expected" ]; then
+        printf 'ok   %s\n' "$name"
+        return
+    fi
+    printf 'FAIL %s (expected exit %s, got %s)\n' "$name" "$expected" "$got"
+    failures=$((failures + 1))
+}
+
+big_bypass="$(mktemp)"
+python3 -c "
+import sys
+sys.stdout.write('see https://github.com/acme/secret-thing\n' * 20000)
+" >"$big_bypass"
+
+bypass_status=0
+(
+    set -o pipefail
+    GIT_GUARDS_ALLOW_PRIVATE_NAMES=1 bash "$guard" --text <"$big_bypass" >/dev/null 2>&1
+) || bypass_status=$?
+check_status "text: the bypass reads its input rather than breaking the writer's pipe" \
+    0 "$bypass_status"
+
+pipe_status=0
+(
+    set -o pipefail
+    cat "$big_bypass" |
+        GIT_GUARDS_ALLOW_PRIVATE_NAMES=1 bash "$guard" --text >/dev/null 2>&1
+) || pipe_status=$?
+check_status "text: ...and the same through a real pipe, where SIGPIPE lives" \
+    0 "$pipe_status"
+rm -f "$big_bypass"
+
 # The discriminating case for "the destination is the caller's business": run
 # from a directory that is NOT a public repo -- not a repo at all -- and the
 # refusal must stand. This is the normal situation, not an edge one: a PR body

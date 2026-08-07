@@ -141,6 +141,25 @@ private_owners="${GIT_GUARDS_PRIVATE_OWNERS:-}"
 public_repos="${GIT_GUARDS_PUBLIC_REPOS:-}"
 
 if [ "${GIT_GUARDS_ALLOW_PRIVATE_NAMES:-}" = "1" ]; then
+    # Drain stdin before leaving, but ONLY for the one invocation that actually
+    # pipes: `--text` with no FILE. A filter that exits without reading its
+    # input kills the writer with SIGPIPE, which under the `set -o pipefail` any
+    # careful caller runs becomes the pipeline's status -- 141, from a guard
+    # that meant to say yes.
+    #
+    # It is a race rather than a certainty, which is why it survived this long:
+    # a short message fits in the pipe buffer and the writer finishes before the
+    # exit. The same command passed here and failed on a CI runner.
+    #
+    # The condition is narrow on purpose. Draining whenever stdin is merely not
+    # a terminal blocks forever when stdin is a descriptor the caller inherited
+    # and nobody closes -- which is every other mode, and which hung the whole
+    # suite when this was first written that way. Mode is parsed further down;
+    # this reads the arguments directly rather than moving the bypass, because
+    # the bypass answering before anything else is examined is the point of it.
+    if [ "${1:-}" = '--text' ] && { [ "$#" -eq 1 ] || [ "${2:-}" = '-' ]; }; then
+        cat >/dev/null 2>&1 || true
+    fi
     exit 0
 fi
 
