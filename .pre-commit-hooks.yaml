@@ -1,0 +1,211 @@
+# Every commit-msg hook below declares `pass_filenames: true`, and it is the one
+# thing about them that is easy to get wrong in the direction nobody notices.
+#
+# The message is a FILE, and the runner knows which one. A commit-msg hook
+# declaring `pass_filenames: false` is handed nothing -- argv is empty and no
+# environment variable names the file -- so the guard has no way to learn which
+# message it is being asked about and falls back to .git/COMMIT_EDITMSG. Under
+# `git commit` that fallback happens to be the right file, which is what makes
+# the mistake survivable and therefore permanent.
+#
+# It stops being the right file the moment anyone drives the hook the other way
+# a runner offers:
+#
+#   prek run --hook-stage commit-msg --commit-msg-filename <a message file>
+#
+# That is how a person checks whether a guard actually catches something. With
+# no filename forwarded, the guard reads .git/COMMIT_EDITMSG -- left behind by
+# the last commit, and clean -- and reports Passed over it while the file named
+# on the command line goes unread. The answer is a green tick about a message
+# the guard never opened, which is worse than no answer at all.
+#
+# With it true the runner forwards exactly one path in both directions:
+# `.git/COMMIT_EDITMSG` under a real commit, and the named file under `run`. The
+# fallback stays in each guard for a runner that forwards nothing, but nothing
+# reaches it here.
+- id: prevent-ai-author
+  name: prevent AI-authored commits
+  description: reject commit messages carrying AI-authorship trailers
+  entry: prevent-ai-author.sh
+  language: script
+  stages: [commit-msg]
+  pass_filenames: true
+  always_run: true
+
+- id: prevent-author-mismatch
+  name: prevent author/committer identity mismatch
+  description: block commits whose author/committer doesn't match your global ~/.gitconfig identity
+  entry: prevent-author-mismatch.sh
+  language: script
+  stages: [pre-commit]
+  pass_filenames: false
+  always_run: true
+
+- id: prevent-unusual-unicode
+  name: prevent unusual unicode in commit messages
+  description: reject control/zero-width/emoji/invisible-letter and other unusual unicode in commit messages
+  entry: prevent-unusual-unicode.sh
+  language: script
+  stages: [commit-msg]
+  pass_filenames: true
+  always_run: true
+
+# The same rule's second mode, over committed FILE content -- a DIFFERENT ban for
+# a stated reason (see the module docstring): a message gets a whitelist, a file
+# gets an invisible-character ban, because real repositories commit CJK
+# punctuation, box drawing and emoji that are DATA.
+#
+# always_run over the whole tree being committed, not the staged files. A hidden
+# character checked on its way in and never again is invisible forever once it
+# arrives under --no-verify or through a merge; and a scan whose denominator is
+# the whole tree can report a broken enumeration as a failure rather than as a
+# clean tree.
+#
+# Four stages, and each one is a different arrival.
+#
+# pre-commit is the ordinary one. pre-merge-commit is there because git runs
+# `pre-merge-commit` for a merge and `pre-commit` for a commit -- different hook
+# types, installed by different lines -- so a branch carrying a zero-width space
+# merges into the trunk with NO file guard consulted.
+#
+# pre-push and manual were missing, and their absence was measured rather than
+# argued. Registered at the first two stages only, the whole pushed-commit branch
+# of git-guards-scope.sh was unreachable from this caller -- the resolver's answer
+# for a push existed and nothing ever asked it -- and CI's `--hook-stage manual`
+# never ran this guard at all. A commit carrying U+200B rode a `git merge
+# --ff-only` from a hookless clone to the remote with no override of any kind: a
+# fast-forward creates no commit, so no pre-merge-commit hook runs, and the push
+# that published it had nothing registered to look. Its sibling
+# no-private-repo-names-in-files was already at pre-merge-commit, pre-push and
+# manual for exactly these reasons; this one asks the same question of the same
+# resolver and now answers at the same moments. It costs no network, so unlike
+# that sibling it stays at pre-commit too.
+- id: prevent-unusual-unicode-in-files
+  name: no hidden unicode in committed files
+  description: reject control/zero-width/bidi/private-use/non-breaking-space/default-ignorable characters in committed file content
+  entry: prevent-unusual-unicode-in-files.py --files
+  language: script
+  stages: [pre-commit, pre-merge-commit, pre-push, manual]
+  pass_filenames: false
+  always_run: true
+
+- id: no-private-repo-names
+  name: no private repo names in a public repo
+  description: block commit messages that name a private repository, when this repo is public
+  entry: no-private-repo-names.sh
+  language: script
+  stages: [commit-msg]
+  pass_filenames: true
+  always_run: true
+
+- id: no-private-repo-names-staged
+  name: no private repo names in staged changes
+  description: block added lines that name a private repository, when this repo is public
+  entry: no-private-repo-names.sh --staged
+  language: script
+  stages: [pre-commit]
+  pass_filenames: false
+  always_run: true
+
+# pre-merge-commit, pre-push and manual, deliberately NOT pre-commit, for the reason
+# no-stale-hook-pins below is not at pre-commit either -- and more so. This mode
+# asks the forge about every distinct name anywhere in the tree, not about the
+# few a commit touches, and a tree carrying examples, fixtures and documentation
+# is mostly names the forge has never heard of. On this repository that is 46
+# names and 41 network round trips, measured at 19.4 seconds against 0.08
+# seconds with `gh` off PATH: the entire cost is waiting for the network, and it
+# recurs because a name the forge cannot see is not a visibility that can be
+# cached as one. A guard that adds twenty seconds to every commit is a guard
+# somebody eventually deletes.
+#
+# Nothing is left uncovered at commit time. no-private-repo-names-staged above
+# judges what the commit ADDS, which is the right unit there and costs a lookup
+# only for a name actually being added. What this mode adds is the line that
+# arrived WITHOUT passing a hook -- under --no-verify, through a merge, from a
+# checkout with no hooks installed -- and a later commit is not the moment that
+# becomes urgent. The last moment before the work becomes shared is, and manual
+# is how CI and a scheduled run reach it rather than whoever pushes next.
+#
+# pre-merge-commit is the third stage and it closes the middle one of those
+# three arrivals. A merge runs `pre-merge-commit`, never `pre-commit`, so a
+# branch that picked up a private name under --no-verify reaches the trunk
+# through `git merge --no-ff` with nothing consulted -- the guard's own list of
+# arrivals naming the one it could not see. A merge is rare enough that the
+# network cost which rules out pre-commit does not rule this out.
+#
+# At each of the three the scan reads a DIFFERENT artifact, which is the point
+# of git-guards-scope.sh: the index at pre-merge-commit, HEAD or the index at
+# manual, and at pre-push the commit being pushed TOGETHER WITH every blob the
+# pushed range introduces -- a file added in one pushed commit and deleted in the
+# next is on the remote permanently and is in no tip tree. It never reads the
+# working tree, which at pre-push is quite likely a different branch entirely.
+- id: no-private-repo-names-in-files
+  name: no private repo names in a public repo's files
+  description: scan the whole tree being committed or pushed, and what the pushed range introduces, not only the lines a commit adds
+  entry: no-private-repo-names.sh --tracked
+  language: script
+  stages: [pre-merge-commit, pre-push, manual]
+  pass_filenames: false
+  always_run: true
+
+- id: prevent-public-push
+  name: Prevent pushes outside workspace
+  description: block pushes to owners/repos outside the workspace allow-list
+  entry: prevent-public-push.sh
+  language: script
+  stages: [pre-push]
+  pass_filenames: false
+  always_run: true
+
+# A FAST-FORWARD merge is not covered, and cannot be: git creates no commit for
+# one and runs no pre-merge-commit hook, so there is no moment for this to
+# refuse at. What it disables is the merge that would make a merge commit.
+# Whatever a fast-forward brings in is judged at the next commit or push, by the
+# tree-wide guards above, which read the tree the operation is introducing.
+- id: no-local-merge
+  name: no local git merge that would make a merge commit
+  description: block a local git merge that would create a merge commit
+  language: fail
+  entry: >-
+    Local merges are disabled. Merge via your forge's PR/MR workflow
+    (e.g. `gh pr merge`, `glab mr merge`). Override once with
+    `git merge --no-verify` if you truly mean it.
+  stages: [pre-merge-commit]
+  always_run: true
+  pass_filenames: false
+
+- id: no-merge-commit
+  name: no local merge commit
+  entry: no-merge-commit.sh
+  language: script
+  stages: [pre-commit]
+  always_run: true
+  pass_filenames: false
+
+# The rev a repo pins is the only version of these guards it actually runs, and
+# no other hook here ever asks whether it is the current one. What used to ask
+# was a dependency updater whose default release-cooldown filter kept the old
+# version, said so only in a job log, and raised no pull request -- so the pins
+# rotted while every surface said healthy. See the script's own header.
+#
+# pre-push and manual, deliberately NOT pre-commit. One `git ls-remote` per
+# hook repo is a network round trip, and a check that adds one to every commit
+# is a check that gets commented out -- while offline commits, which must keep
+# working, would each pay a timeout to learn nothing. pre-push is the last
+# local moment before the work becomes shared and happens far less often;
+# manual is how CI reaches it, which is what turns this from "whoever pushes
+# next finds out" into something a scheduled run finds on its own.
+#
+# always_run with no filenames, for the reason that matters most: at pre-push a
+# runner passes the files in the push, and .pre-commit-config.yaml is almost
+# never one of them. A pin check that only runs when the pin file changes is a
+# pin check that never runs -- the config does not change, which is the whole
+# problem.
+- id: no-stale-hook-pins
+  name: hook pins are not behind upstream
+  description: fail when a .pre-commit-config.yaml rev is behind its upstream's newest tag
+  entry: no-stale-hook-pins.py
+  language: script
+  stages: [pre-push, manual]
+  pass_filenames: false
+  always_run: true

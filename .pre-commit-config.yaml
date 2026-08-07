@@ -1,0 +1,281 @@
+# Shared hook configuration — works with both pre-commit and prek.
+#
+# pre-commit:  pip install pre-commit && pre-commit install
+# prek:        cargo install prek && prek install
+#
+# Both tools read this file natively.  lefthook has its own lefthook.yml.
+
+# Four hook types, and the last two are not decoration.
+#
+# `git merge` runs `pre-merge-commit`, NOT `pre-commit`. They are different hook
+# types installed by different lines, so with only the first two here a branch
+# carrying a zero-width space or a private repository's name merged into the
+# trunk with no file guard consulted at all, and pushed — which is precisely the
+# "arrived through a merge" case the tree-wide scans below describe themselves
+# as the backstop for. The comments were refuting themselves, and no run in the
+# suite could see it, because a merge is the one operation no test made.
+#
+# `pre-push` is here because the tree-wide private-name scan reads a DIFFERENT
+# artifact there: at pre-commit and pre-merge-commit the index, at pre-push the
+# commit actually being pushed. Registering it at only the first two would leave
+# the path where the guard is published to consumers exercised by nothing in
+# this repository — and that path is where the guard used to read whatever
+# branch happened to be checked out.
+default_install_hook_types:
+  - pre-commit
+  - commit-msg
+  - pre-merge-commit
+  - pre-push
+
+# Every hook below names its stages, and none of them relies on the default.
+#
+# The default is "every stage the hook is installed at", and the four lines above
+# install four of them.  A file hook with no `stages:` therefore also runs at
+# commit-msg, where the only file it is handed is `.git/COMMIT_EDITMSG` — so
+# check-toml would TOML-parse the commit message and actionlint would lint it as
+# a workflow, and `git commit -m "chore: a plain ascii subject line"` exits 1
+# here.  A guard repository that cannot commit to itself is not one anybody
+# should install, and nothing that reads only this YAML can see it: the stage
+# list is valid either way, and every hook passes when it is run.
+# tests/self-commit-test.sh is the instrument, because it makes a commit — and
+# a merge, for the hook type two paragraphs up.
+#
+# Consumers are not exposed to this at all: .pre-commit-hooks.yaml declares
+# stages on every hook it publishes, and that declaration is what a consumer
+# gets.
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+        stages: [pre-commit]
+      - id: end-of-file-fixer
+        stages: [pre-commit]
+      - id: check-yaml
+        args: [--allow-multiple-documents]
+        stages: [pre-commit]
+      - id: check-toml
+        stages: [pre-commit]
+      - id: check-merge-conflict
+        stages: [pre-commit]
+      - id: check-added-large-files
+        stages: [pre-commit]
+
+
+  - repo: https://github.com/rhysd/actionlint
+    rev: v1.7.12
+    hooks:
+      - id: actionlint
+        stages: [pre-commit]
+
+  # This repo is public, so it runs its own private-name guards over itself.
+  # The mistake they catch is the natural one to make here: a fix motivated by a
+  # private repo, with that repo's name pasted into the commit message.
+  - repo: local
+    hooks:
+      # pass_filenames: true, as every commit-msg hook here declares. The
+      # message is a file and the runner knows which one; a commit-msg hook
+      # handed no filename falls back to .git/COMMIT_EDITMSG, which is the right
+      # file under `git commit` and the wrong one under
+      # `run --commit-msg-filename`, where it reports Passed over the last
+      # commit's message instead of the one it was asked about. See the same
+      # note in .pre-commit-hooks.yaml, which is what consumers get.
+      - id: no-private-repo-names
+        name: no private repo names in a public repo
+        entry: no-private-repo-names.sh
+        language: script
+        stages: [commit-msg]
+        pass_filenames: true
+        always_run: true
+      - id: no-private-repo-names-staged
+        name: no private repo names in staged changes
+        entry: no-private-repo-names.sh --staged
+        language: script
+        stages: [pre-commit]
+        pass_filenames: false
+        always_run: true
+      # The other half. Staged mode judges what a commit ADDS and is blind to a
+      # line already there -- which is how a private name that arrived under
+      # --no-verify, through a merge, or from a checkout with no hooks installed
+      # stays put forever. Manual stage too, so CI reaches what a local hook may
+      # not have.
+      #
+      # Four stages, where .pre-commit-hooks.yaml publishes three, and the extra
+      # one is pre-commit. The cost argument that keeps it off pre-commit for
+      # consumers is a cold-cache argument -- 46 names, 41 round trips, 19.4
+      # seconds -- and this tree's answers are cached after the first run.
+      #
+      # The other three are the published ones and they are here because each
+      # reads a DIFFERENT thing. pre-commit and pre-merge-commit read the index;
+      # pre-push reads the commit being pushed and the blobs its range
+      # introduces, which is the artifact this guard got wrong for its entire
+      # life and which nothing else here exercises.
+      # A guard published at a stage its own repository never runs is a guard
+      # whose most important path is tested by whoever installs it first.
+      - id: no-private-repo-names-in-files
+        name: no private repo names in this repo's files
+        entry: no-private-repo-names.sh --tracked
+        language: script
+        stages: [pre-commit, pre-merge-commit, pre-push, manual]
+        pass_filenames: false
+        always_run: true
+
+  # The guards' own behaviour tests. A hook that decides whether a push may
+  # leave the machine has to be exercised the way a runner invokes it — from a
+  # cache copy, working directory at the project root — not merely linted.
+  - repo: local
+    hooks:
+      - id: guard-tests
+        name: guard behaviour tests
+        entry: tests/prevent-public-push-test.sh
+        language: script
+        pass_filenames: false
+        always_run: true
+        stages: [pre-commit, manual]
+      - id: private-name-tests
+        name: private-name guard tests
+        entry: tests/no-private-repo-names-test.sh
+        language: script
+        pass_filenames: false
+        always_run: true
+        stages: [pre-commit, manual]
+      # The shared answer to "which tree", which both tree-wide guards now
+      # depend on and neither owns. It gets its own lane for that reason: a
+      # single point of failure covered only by the sum of its callers' suites
+      # is the arrangement that let each of them answer this question wrongly
+      # and separately in the first place.
+      - id: scope-tests
+        name: scope resolver tests
+        entry: tests/git-guards-scope-test.sh
+        language: script
+        pass_filenames: false
+        always_run: true
+        stages: [pre-commit, manual]
+      - id: pin-tests
+        name: stale-pin guard tests
+        entry: tests/no-stale-hook-pins-test.sh
+        language: script
+        pass_filenames: false
+        always_run: true
+        stages: [pre-commit, manual]
+      # Documentation against the manifest. It costs milliseconds and it covers
+      # the one kind of wrongness the rest of the suite is blind to: every hook
+      # passes when it runs, so a README naming a stage no hook is registered at
+      # produces no failure anywhere -- only somebody wiring it up and finding
+      # it never fires.
+      - id: readme-tests
+        name: README describes the published hooks
+        entry: tests/readme-matches-hooks-test.sh
+        language: script
+        pass_filenames: false
+        always_run: true
+        stages: [pre-commit, manual]
+      # Does the suite's answer depend on the environment of whoever runs it? It
+      # did: exporting the variables this README tells consumers to export made
+      # 285 assertions fail across five files, none of them a defect in a guard.
+      # The person most likely to have exported them is the person deciding
+      # whether to adopt these hooks, so the failure lands on them and not on
+      # the author. Cheap, so it runs at pre-commit as well.
+      - id: hermetic-suite-test
+        name: the suite does not read the caller's environment
+        entry: tests/suite-is-hermetic-test.sh
+        language: script
+        pass_filenames: false
+        always_run: true
+        stages: [pre-commit, manual]
+      # manual only, and the reason is what this one does: it installs the hooks
+      # into a throwaway copy and makes a real commit there -- and a real merge,
+      # and a real push into a real bare repository. At pre-commit that would be
+      # a commit inside a commit, so the stage list is the recursion guard. CI
+      # runs `--hook-stage manual`, which is where it belongs anyway: nothing
+      # else in the suite can see a defect that only appears once the hooks are
+      # installed.
+      - id: self-commit-test
+        name: this repo can commit to itself
+        entry: tests/self-commit-test.sh
+        language: script
+        pass_filenames: false
+        always_run: true
+        stages: [manual]
+
+  # This repo pins two upstreams of its own, so it runs the pin check over
+  # itself -- and the day one of those upstreams tags a release, this goes red
+  # until somebody bumps the rev. That is the hook working, not the hook
+  # misbehaving: a check that only ever complains about other people's
+  # repositories is one nobody has tested against a real pin.
+  #
+  # manual only. It needs the network, this repo installs no pre-push hook, and
+  # CI runs `--hook-stage manual`, which is where a pin that has been behind for
+  # a fortnight actually gets found.
+  - repo: local
+    hooks:
+      - id: no-stale-hook-pins-here
+        name: this repo's own hook pins are not behind upstream
+        entry: ./no-stale-hook-pins.py
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [manual]
+
+  # This repo runs its own file-content guard over itself. A rule that cannot
+  # survive its own source is one nobody should be asked to adopt -- and it is the
+  # only way the hook is exercised the way a consumer will actually get it.
+  - repo: local
+    hooks:
+      # pre-commit and manual, not commit-msg. The self-test spawns the checker
+      # once per case and takes about six seconds, and with no stages declared a
+      # single commit would pay for it twice -- once at pre-commit and again at
+      # commit-msg, where neither of these has anything to say because neither
+      # reads a commit message. The argument this repository makes for its own
+      # fast path ("a guard that runs on every commit and got slower is a guard
+      # somebody eventually comments out") has to hold for the config shipping
+      # beside it too.
+      - id: unicode-in-files-selftest
+        name: prevent-unusual-unicode-in-files self-test
+        entry: python3 tests/prevent-unusual-unicode-in-files-test.py
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-commit, manual]
+      # All four published stages, and pre-push is the one that matters most
+      # here. Registered at pre-commit and pre-merge-commit alone, this guard
+      # never reached the pushed-commit branch of git-guards-scope.sh at all --
+      # the resolver's answer for a push existed and nothing asked it -- and a
+      # commit carrying U+200B rode a `git merge --ff-only` from a hookless
+      # clone to a remote with every hook green. A fast-forward creates no
+      # commit, so pre-merge-commit never runs for one; the push is the only
+      # moment left. It is also where this guard reads a commit MESSAGE, which
+      # is a path nothing else in this file exercises.
+      - id: prevent-unusual-unicode-in-files-here
+        name: no hidden unicode in this repo's files
+        entry: ./prevent-unusual-unicode-in-files.py --files
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-commit, pre-merge-commit, pre-push, manual]
+      # The same rule's other mode, over this repo's own commit messages. Both
+      # modes are dogfooded here, and this is the one that matters more: a
+      # commit message, unlike a file, cannot be corrected afterwards without
+      # rewriting published history. A commit-msg entry point exercised only by
+      # its own test is a guard nobody has run in the mode where being wrong is
+      # permanent.
+      - id: prevent-unusual-unicode-here
+        name: no unusual unicode in this repo's commit messages
+        entry: ./prevent-unusual-unicode.sh
+        language: system
+        stages: [commit-msg]
+        pass_filenames: true
+        always_run: true
+      # The third commit-msg guard, over this repository's own messages. It is
+      # here for the same reason as the two above: a guard this repository
+      # publishes and does not run is one whose commit-msg wiring is exercised
+      # only by its own test, and the message modes are where being wrong cannot
+      # be corrected afterwards without rewriting published history.
+      - id: prevent-ai-author-here
+        name: no AI-authorship trailers in this repo's commit messages
+        entry: ./prevent-ai-author.sh
+        language: system
+        stages: [commit-msg]
+        pass_filenames: true
+        always_run: true

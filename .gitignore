@@ -1,0 +1,12 @@
+.agents/
+.antigravitycli/
+.claude/
+.codex/
+dist/
+
+# Two of the guards here are Python, so a checkout can grow byte-compiled
+# copies of them. A .pyc is not valid UTF-8, and the file-content guard counts
+# a binary file as a declared skip -- so an unignored __pycache__ is the one
+# kind of stray directory this repository's own hooks would carry past without
+# remark, as far as whoever types `git add -A`.
+__pycache__/

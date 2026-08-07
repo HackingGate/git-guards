@@ -1,0 +1,39 @@
+# lefthook configuration -- fast, cross-language Git hooks manager.
+#
+# Install:  go install github.com/evilmartians/lefthook@latest
+#           or via npm/cargo/homebrew: https://github.com/evilmartians/lefthook
+# Setup:    lefthook install
+# Run all:  lefthook run pre-commit --all-files
+#
+# Hook below mirrors the actionlint check in .pre-commit-config.yaml.
+# YAML validation, whitespace, EOF, and merge-conflict checks are handled
+# by pre-commit / prek; lefthook runs the GH Actions-specific linter.
+
+pre-commit:
+  parallel: true
+  commands:
+    actionlint:
+      glob: ".github/workflows/*.{yml,yaml}"
+      run: actionlint {staged_files}
+    guard-tests:
+      run: tests/prevent-public-push-test.sh
+    private-name-tests:
+      run: tests/no-private-repo-names-test.sh
+    # The shared answer to "which tree", which both tree-wide guards depend on
+    # and neither owns.
+    scope-tests:
+      run: tests/git-guards-scope-test.sh
+    unicode-tests:
+      run: python3 tests/prevent-unusual-unicode-in-files-test.py
+    # The pin guard's tests, not the pin guard itself: the guard needs the
+    # network on every run, and lefthook's pre-commit is every commit. The
+    # suite's own network lane skips loudly and keeps its offline cases.
+    pin-tests:
+      run: tests/no-stale-hook-pins-test.sh
+    # Whether the suite's answer depends on the environment of whoever runs it.
+    # It is the one check that has to run under every runner rather than one,
+    # because a runner is itself an environment: lefthook exports its own
+    # variables, and a suite that reads the caller's is a suite whose result
+    # changes with the tool that started it.
+    hermetic-suite-test:
+      run: tests/suite-is-hermetic-test.sh

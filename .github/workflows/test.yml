@@ -1,0 +1,85 @@
+name: Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: test-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  hooks:
+    name: ${{ matrix.tool }}
+    runs-on: ubuntu-slim
+    strategy:
+      fail-fast: false
+      matrix:
+        tool: [pre-commit, prek, lefthook]
+    steps:
+      - uses: actions/checkout@v7
+
+      # Two stages, not one, and the first is the one a contributor actually
+      # meets. `--hook-stage manual` reaches 11 of the 19 hooks this repository
+      # configures across its two file stages; the other 8 are pre-commit-only,
+      # and they are the upstream file hooks, actionlint, and the staged
+      # private-name scan -- everything that decides whether an ordinary
+      # `git commit` succeeds here. Running only the manual set means CI is
+      # green on a tree that cannot be committed to, which is a thing that can
+      # only be discovered by a person typing `git commit`.
+      #
+      # The overlap between the two runs is deliberate rather than wasteful: the
+      # heavy self-tests declare both stages precisely so neither invocation can
+      # be the only one that covers them.
+      #
+      # Commit-msg is a third stage and neither invocation reaches it, because a
+      # runner needs a message file to run one. The self-commit test in the
+      # manual set is what covers those three guards: it installs the hooks into
+      # a throwaway copy, makes a real commit, and drives
+      # `run --hook-stage commit-msg --commit-msg-filename` for each of them.
+
+      # ── pre-commit (Python) ──────────────────────────────────────
+      - if: matrix.tool == 'pre-commit'
+        name: pre-commit (what a commit runs)
+        uses: pre-commit/action@v3.0.1
+        with:
+          extra_args: --all-files
+
+      - if: matrix.tool == 'pre-commit'
+        name: pre-commit (manual stage)
+        uses: pre-commit/action@v3.0.1
+        with:
+          extra_args: --all-files --hook-stage manual
+
+      # ── prek (Rust) ─────────────────────────────────────────────
+      - if: matrix.tool == 'prek'
+        name: prek (what a commit runs)
+        uses: j178/prek-action@v2
+        with:
+          extra-args: --all-files
+
+      - if: matrix.tool == 'prek'
+        name: prek (manual stage)
+        uses: j178/prek-action@v2
+        with:
+          extra-args: --all-files --hook-stage manual
+
+      # ── lefthook (Go) ───────────────────────────────────────────
+      - if: matrix.tool == 'lefthook'
+        uses: actions/setup-go@v7
+        with:
+          go-version: '>=1.26'
+
+      - if: matrix.tool == 'lefthook'
+        run: |
+          go install github.com/evilmartians/lefthook/v2@v2.1.9
+          go install github.com/rhysd/actionlint/cmd/actionlint@latest
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - if: matrix.tool == 'lefthook'
+        run: lefthook run pre-commit --all-files
