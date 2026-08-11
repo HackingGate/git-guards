@@ -1,5 +1,11 @@
 # git-guards
 
+> [!IMPORTANT]
+> This repository is deprecated and retained for historical compatibility only.
+> New and existing consumers should use
+> [HackingGate/uphold](https://github.com/HackingGate/uphold), which consolidates
+> Git guards, content policy, and command shims behind one policy file and hook set.
+
 Reusable [pre-commit](https://pre-commit.com/) / [prek](https://github.com/j178/prek)
 hooks for keeping local Git history clean across a multi-repo workspace.
 
